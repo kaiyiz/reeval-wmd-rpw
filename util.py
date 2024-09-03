@@ -411,3 +411,10 @@ def load_one(filename):
     X_test = X[n_train:]
     y_test = data['yte'][0].astype(int)
     return X_train, y_train, X_test, y_test
+
+def generate_data_name(data_name, clean=False, reduced=False, rpw=False):
+    if clean:
+        filename = '{}_clean{}{}'.format(data_name, '_reduced' if reduced else '', '_rpw' if rpw else '')
+    else:
+        filename = '{}-emd_tr_te_split{}{}'.format(data_name, '_reduced' if reduced else '', '_rpw' if rpw else '')
+    return filename

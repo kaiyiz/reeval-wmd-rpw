@@ -1,8 +1,11 @@
 import argparse
 import numpy as np
+import pandas as pd
+import os
 
 from util import evaluate_D, evaluate_onehot, load, load_one
 from util import evaluate_D_smooth, evaluate_onehot_smooth
+from util import generate_data_name
 
 
 def five(data, X, y, weight=False, tfidf=False, norm='l1', metric='l1'):
@@ -120,83 +123,157 @@ def fiveD(data, y, D, weight=False):
 def evaluate_five(filename):
     print(filename)
     print('-' * len(filename))
-    data, X, y = load('data/{}'.format(filename))
+    is_rpw = "rpw" in filename
+    data_name = filename.replace("_rpw", "")
+    data, X, y = load('data/{}'.format(data_name))
     D = np.load('distance/{}.npy'.format(filename))
     D_tfidf = np.load('distance/{}-tfidf.npy'.format(filename))
 
-    for norm in ['l1', 'l2', None]:
-        for metric in ['l1', 'l2']:
-            res = (1 - five(data, X, y, norm=norm, metric=metric)) * 100
-            print('BOW ({}/{})\t{:.1f} ± {:.1f}'.format(str(norm).upper(), str(metric).upper(), res.mean(), res.std()))
-            res = (1 - five(data, X, y, tfidf=True, norm=norm, metric=metric)) * 100
-            print('TF-IDF ({}/{})\t{:.1f} ± {:.1f}'.format(str(norm).upper(), str(metric).upper(), res.mean(), res.std()))
-    res = (1 - fiveD(data, y, D)) * 100
-    print('WMD\t{:.1f} ± {:.1f}'.format(res.mean(), res.std()))
-    res = (1 - fiveD(data, y, D_tfidf)) * 100
-    print('WMD-TF-IDF\t{:.1f} ± {:.1f}'.format(res.mean(), res.std()))
+    try:
+        results = pd.read_csv('results/{}.csv'.format("results_five"))
+    except FileNotFoundError:
+        results = pd.DataFrame(columns=['data_name', 'method', 'norm', 'metric', 'accuracy', 'std', 'weight', 'tfidf'])
 
-    res = (1 - five(data, X, y, weight=True)) * 100
-    print('BOW weight\t{:.1f} ± {:.1f}'.format(res.mean(), res.std()))
-    res = (1 - five(data, X, y, weight=True, tfidf=True)) * 100
-    print('TF-IDF weight\t{:.1f} ± {:.1f}'.format(res.mean(), res.std()))
+    if not is_rpw:
+        for norm in ['l1', 'l2', None]:
+            for metric in ['l1', 'l2']:
+                res = (1 - five(data, X, y, norm=norm, metric=metric)) * 100
+                print('BOW ({}/{})\t{:.1f} ± {:.1f}'.format(str(norm).upper(), str(metric).upper(), res.mean(), res.std()))
+                results = results._append({'data_name': data_name, 'method': 'BOW', 'norm': norm, 'metric': metric, 'accuracy': res.mean(), 'std': res.std(), 'weight': False, 'tfidf': False}, ignore_index=True)
+                res = (1 - five(data, X, y, tfidf=True, norm=norm, metric=metric)) * 100
+                print('TF-IDF ({}/{})\t{:.1f} ± {:.1f}'.format(str(norm).upper(), str(metric).upper(), res.mean(), res.std()))
+                results = results._append({'data_name': data_name, 'method': 'TF-IDF', 'norm': norm, 'metric': metric, 'accuracy': res.mean(), 'std': res.std(), 'weight': False, 'tfidf': True}, ignore_index=True)
+        res = (1 - five(data, X, y, weight=True)) * 100
+        print('BOW weight\t{:.1f} ± {:.1f}'.format(res.mean(), res.std()))
+        results = results._append({'data_name': data_name, 'method': 'BOW', 'norm': None, 'metric': None, 'accuracy': res.mean(), 'std': res.std(), 'weight': True, 'tfidf': False}, ignore_index=True)
+        res = (1 - five(data, X, y, weight=True, tfidf=True)) * 100
+        print('TF-IDF weight\t{:.1f} ± {:.1f}'.format(res.mean(), res.std()))
+        results = results._append({'data_name': data_name, 'method': 'TF-IDF', 'norm': None, 'metric': None, 'accuracy': res.mean(), 'std': res.std(), 'weight': True, 'tfidf': True}, ignore_index=True)
+
+    method = 'WMD' if not is_rpw else 'RPW'
+    res = (1 - fiveD(data, y, D)) * 100
+    print('{}\t{:.1f} ± {:.1f}'.format(method, res.mean(), res.std()))
+    results = results._append({'data_name': data_name, 'method': method, 'norm': None, 'metric': None, 'accuracy': res.mean(), 'std': res.std(), 'weight': False, 'tfidf': False}, ignore_index=True)
+
+    res = (1 - fiveD(data, y, D_tfidf)) * 100
+    print('{}-TF-IDF\t{:.1f} ± {:.1f}'.format(method, res.mean(), res.std()))
+    results = results._append({'data_name': data_name, 'method': method, 'norm': None, 'metric': None, 'accuracy': res.mean(), 'std': res.std(), 'weight': False, 'tfidf': True}, ignore_index=True)
+
     res = (1 - fiveD(data, y, D, weight=True)) * 100
-    print('WMD weight\t{:.1f} ± {:.1f}'.format(res.mean(), res.std()))
+    print('{} weight\t{:.1f} ± {:.1f}'.format(method, res.mean(), res.std()))
+    results = results._append({'data_name': data_name, 'method': method, 'norm': None, 'metric': None, 'accuracy': res.mean(), 'std': res.std(), 'weight': True, 'tfidf': False}, ignore_index=True)
+
     res = (1 - fiveD(data, y, D_tfidf, weight=True)) * 100
-    print('WMD-TF-IDF weight\t{:.1f} ± {:.1f}'.format(res.mean(), res.std()))
+    print('{}-TF-IDF weight\t{:.1f} ± {:.1f}'.format(method, res.mean(), res.std()))
+    results = results._append({'data_name': data_name, 'method': method, 'norm': None, 'metric': None, 'accuracy': res.mean(), 'std': res.std(), 'weight': True, 'tfidf': True}, ignore_index=True)
+
+    if not os.path.exists('results'):
+        os.makedirs('results')
+    results.to_csv('results/{}.csv'.format("results_five"), index=False)
     print()
 
 
 def evaluate_one(filename):
     print(filename)
     print('-' * len(filename))
-    X_train, y_train, X_test, y_test = load_one('data/{}'.format(filename))
+    is_rpw = "rpw" in filename
+    X_train, y_train, X_test, y_test = load_one('data/{}'.format(filename.replace("_rpw", "")))
     D = np.load('distance/{}.npy'.format(filename))
     D_train = np.load('distance/{}-train.npy'.format(filename))
     D_tfidf = np.load('distance/{}-tfidf.npy'.format(filename))
     D_train_tfidf = np.load('distance/{}-train-tfidf.npy'.format(filename))
 
-    for norm in ['l1', 'l2', None]:
-        for metric in ['l1', 'l2']:
-            res = (1 - evaluate_onehot(X_train, y_train, X_test, y_test, norm=norm, metric=metric)) * 100
-            print('BOW ({}/{})\t{:.1f}'.format(str(norm).upper(), str(metric).upper(), res))
-            res = (1 - evaluate_onehot(X_train, y_train, X_test, y_test, tfidf=True, norm=norm, metric=metric)) * 100
-            print('TF-IDF ({}/{})\t{:.1f}'.format(str(norm).upper(), str(metric).upper(), res))
-    res = (1 - evaluate_D(y_train, y_test, D, D_train)) * 100
-    print('WMD\t{:.1f}'.format(res))
-    res = (1 - evaluate_D(y_train, y_test, D_tfidf, D_train_tfidf)) * 100
-    print('WMD-TF-IDF\t{:.1f}'.format(res))
+    try:
+        results = pd.read_csv('results/{}.csv'.format("results_one"))
+    except FileNotFoundError:
+        results = pd.DataFrame(columns=['data_name', 'method', 'norm', 'metric', 'accuracy', 'std', 'weight', 'tfidf'])
 
-    res = (1 - evaluate_onehot_smooth(X_train, y_train, X_test, y_test)) * 100
-    print('BOW weight\t{:.1f}'.format(res))
-    res = (1 - evaluate_onehot_smooth(X_train, y_train, X_test, y_test, tfidf=True)) * 100
-    print('TF-IDF weight\t{:.1f}'.format(res))
+    if not is_rpw:
+        for norm in ['l1', 'l2', None]:
+            for metric in ['l1', 'l2']:
+                res = (1 - evaluate_onehot(X_train, y_train, X_test, y_test, norm=norm, metric=metric)) * 100
+                print('BOW ({}/{})\t{:.1f}'.format(str(norm).upper(), str(metric).upper(), res))
+                results = results._append({'data_name': filename, 'method': 'BOW', 'norm': norm, 'metric': metric, 'accuracy': res, 'std': 0, 'weight': False, 'tfidf': False}, ignore_index=True)
+                res = (1 - evaluate_onehot(X_train, y_train, X_test, y_test, tfidf=True, norm=norm, metric=metric)) * 100
+                print('TF-IDF ({}/{})\t{:.1f}'.format(str(norm).upper(), str(metric).upper(), res))
+                results = results._append({'data_name': filename, 'method': 'TF-IDF', 'norm': norm, 'metric': metric, 'accuracy': res, 'std': 0, 'weight': False, 'tfidf': True}, ignore_index=True)
+        res = (1 - evaluate_onehot_smooth(X_train, y_train, X_test, y_test)) * 100
+        print('BOW weight\t{:.1f}'.format(res))
+        results = results._append({'data_name': filename, 'method': 'BOW', 'norm': None, 'metric': None, 'accuracy': res, 'std': 0, 'weight': True, 'tfidf': False}, ignore_index=True)
+        res = (1 - evaluate_onehot_smooth(X_train, y_train, X_test, y_test, tfidf=True)) * 100
+        print('TF-IDF weight\t{:.1f}'.format(res))
+        results = results._append({'data_name': filename, 'method': 'TF-IDF', 'norm': None, 'metric': None, 'accuracy': res, 'std': 0, 'weight': True, 'tfidf': True}, ignore_index=True)
+
+    res = (1 - evaluate_D(y_train, y_test, D, D_train)) * 100
+    method = 'WMD' if not is_rpw else 'RPW'
+    print('{}\t{:.1f}'.format(method, res))
+    results = results._append({'data_name': filename, 'method': method, 'norm': None, 'metric': None, 'accuracy': res, 'std': 0, 'weight': False, 'tfidf': False}, ignore_index=True)
+
+    res = (1 - evaluate_D(y_train, y_test, D_tfidf, D_train_tfidf)) * 100
+    print('{}-TF-IDF\t{:.1f}'.format(method, res))
+    results = results._append({'data_name': filename, 'method': method, 'norm': None, 'metric': None, 'accuracy': res, 'std': 0, 'weight': False, 'tfidf': True}, ignore_index=True)
+
     res = (1 - evaluate_D_smooth(y_train, y_test, D, D_train)) * 100
-    print('WMD weight\t{:.1f}'.format(res))
+    print('{} weight\t{:.1f}'.format(method, res))
+    results = results._append({'data_name': filename, 'method': method, 'norm': None, 'metric': None, 'accuracy': res, 'std': 0, 'weight': True, 'tfidf': False}, ignore_index=True)
+
     res = (1 - evaluate_D_smooth(y_train, y_test, D_tfidf, D_train_tfidf)) * 100
-    print('WMD-TF-IDF weight\t{:.1f}'.format(res))
+    print('{}-TF-IDF weight\t{:.1f}'.format(method, res))
+    results = results._append({'data_name': filename, 'method': method, 'norm': None, 'metric': None, 'accuracy': res, 'std': 0, 'weight': True, 'tfidf': True}, ignore_index=True)
+
+    if not os.path.exists('results'):
+        os.makedirs('results')
+    results.to_csv('results/{}.csv'.format("results_one"), index=False)
     print()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--clean', action='store_true')
+    parser.add_argument('--filename', type=str, default='recipe2')
+    parser.add_argument('--reduced', type=bool, default=False)
+    parser.add_argument('--clean', type=bool, default=False)
+    parser.add_argument('--rpw', type=bool, default=False)
     args = parser.parse_args()
 
     if args.clean:
-        evaluate_five('bbcsport_clean.mat')
-        evaluate_five('twitter_clean.mat')
-        evaluate_five('recipe_clean.mat')
-        evaluate_one('ohsumed_clean.mat')
-        evaluate_five('classic_clean.mat')
-        evaluate_one('reuter_clean.mat')
-        evaluate_five('amazon_clean.mat')
-        evaluate_one('20news_clean.mat')
+        filename = '{}_clean{}.mat'.format(args.filename, '_reduced' if args.reduced else '')
     else:
-        evaluate_five('bbcsport-emd_tr_te_split.mat')
-        evaluate_five('twitter-emd_tr_te_split.mat')
-        evaluate_five('recipe2-emd_tr_te_split.mat')
-        evaluate_one('ohsumed-emd_tr_te_ix.mat')
-        evaluate_five('classic-emd_tr_te_split.mat')
-        evaluate_one('r8-emd_tr_te3.mat')
-        evaluate_five('amazon-emd_tr_te_split.mat')
-        evaluate_one('20ng2_500-emd_tr_te.mat')
+        filename = generate_data_name(args.filename, args.clean, args.reduced, args.rpw)
+
+    evaluate_five_dataset_names = {"bbcsport", "twitter", "recipe2", "recipe", "classic", "amazon"}
+    evaluate_one_dataset_names_maps = {"ohsumed": "ohsumed-emd_tr_te_ix", "reuter": "r8-emd_tr_te3", "20news": "20ng2_500-emd_tr_te"}
+
+    if args.filename in evaluate_five_dataset_names:
+        evaluate_five(filename)
+    elif args.filename in evaluate_one_dataset_names_maps.keys():
+        if args.clean:
+            evaluate_one(filename)
+        else:
+            filename = evaluate_one_dataset_names_maps[args.filename]
+            '{}{}{}.mat'.format(filename, '_reduced' if args.reduced else '', '_rpw' if args.rpw else '')
+            evaluate_one(filename)
+
+    # if args.clean:
+    #     evaluate_five('bbcsport_clean_reduced.mat')
+    #     evaluate_five('bbcsport_clean.mat')
+    #     evaluate_five('twitter_clean.mat')
+    #     evaluate_five('twitter_clean_reduced.mat')
+    #     evaluate_five('recipe_clean.mat')
+    #     evaluate_five('recipe_clean_reduced.mat')
+    #     evaluate_one('ohsumed_clean.mat')
+    #     evaluate_five('classic_clean.mat')
+    #     evaluate_one('reuter_clean.mat')
+    #     evaluate_five('amazon_clean.mat')
+    #     evaluate_one('20news_clean.mat')
+    # else:
+    #     evaluate_five('bbcsport-emd_tr_te_split_reduced.mat')
+    #     evaluate_five('bbcsport-emd_tr_te_split.mat')
+    #     evaluate_five('twitter-emd_tr_te_split.mat')
+    #     evaluate_five('twitter-emd_tr_te_split_reduced.mat')
+    #     evaluate_five('recipe2-emd_tr_te_split.mat')
+    #     evaluate_five('recipe2-emd_tr_te_split_reduced.mat')
+    #     evaluate_one('ohsumed-emd_tr_te_ix.mat')
+    #     evaluate_five('classic-emd_tr_te_split.mat')
+    #     evaluate_one('r8-emd_tr_te3.mat')
+    #     evaluate_five('amazon-emd_tr_te_split.mat')
+    #     evaluate_one('20ng2_500-emd_tr_te.mat')
